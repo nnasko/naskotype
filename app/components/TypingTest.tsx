@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { AlertCircle, Home } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -2175,13 +2182,7 @@ interface LeaderboardEntry {
 
 const ITEMS_PER_PAGE = 10;
 
-const ShootingStar: React.FC = () => {
-  const style = {
-    left: `${Math.random() * 100}%`,
-    top: `${Math.random() * 100}%`,
-    animationDelay: `${Math.random() * 5}s`,
-  };
-
+const ShootingStar: React.FC<{ style: React.CSSProperties }> = ({ style }) => {
   return (
     <div
       className="absolute w-0.5 h-0.5 bg-white rounded-full animate-shoot"
@@ -2198,6 +2199,7 @@ const TypingTest: React.FC = () => {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const textContainerRef = useRef<HTMLDivElement>(null);
   const [userInput, setUserInput] = useState("");
+  const [lobbyCode, setLobbyCode] = useState("");
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
   const [typingData, setTypingData] = useState<
@@ -2222,12 +2224,23 @@ const TypingTest: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const caretRef = useRef<HTMLDivElement>(null);
   const [showHome, setShowHome] = useState(true);
+  const router = useRouter();
 
   const generateWordList = useCallback(() => {
     return Array.from(
       { length: 100 },
       () => words[Math.floor(Math.random() * words.length)]
     );
+  }, []);
+
+  const shootingStars = useMemo(() => {
+    return Array.from({ length: 50 }, () => ({
+      style: {
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        animationDelay: `${Math.random() * 5}s`,
+      },
+    }));
   }, []);
 
   const startTimer = useCallback(() => {
@@ -2369,10 +2382,10 @@ const TypingTest: React.FC = () => {
     const isCurrentWord = index === currentWordIndex;
     const isPastWord = index < currentWordIndex;
     const className = isPastWord
-      ? "text-gray-500"
+      ? "text-green-200"
       : isCurrentWord
       ? "text-white"
-      : "text-gray-700";
+      : "text-neutral-500";
 
     if (isCurrentWord) {
       const userChars = userInput.split("");
@@ -2486,7 +2499,7 @@ const TypingTest: React.FC = () => {
     const totalPages = Math.ceil(leaderboard.length / ITEMS_PER_PAGE);
 
     return (
-      <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+      <div className="bg-neutral-800 p-6 rounded-lg shadow-lg">
         <h2 className="text-2xl font-bold mb-4">{title}</h2>
         <Table>
           <TableHeader>
@@ -2545,9 +2558,9 @@ const TypingTest: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col p-8 relative overflow-hidden">
-      {[...Array(20)].map((_, i) => (
-        <ShootingStar key={i} />
+    <div className="min-h-screen bg-neutral-900 text-white flex flex-col p-8 relative overflow-hidden">
+      {shootingStars.map((star, i) => (
+        <ShootingStar key={i} style={star.style} />
       ))}
       <div className="flex justify-between items-start mb-8 z-20">
         <Button
@@ -2557,11 +2570,32 @@ const TypingTest: React.FC = () => {
           <Home className="mr-2 h-4 w-4" /> Home
         </Button>
         <h1 className="text-5xl font-bold text-center">naskotype</h1>
-        <div className="w-24"></div> {/* Spacer for alignment */}
+        <div className="w-24"></div>
       </div>
       <div className="flex-grow flex justify-between items-start z-10">
-        <div className="w-1/4 overflow-y-auto max-h-[calc(100vh-12rem)]">
+        <div className="w-1/4 overflow-y-auto max-h-[calc(100vh-12rem)] flex flex-col gap-4">
           {renderLeaderboard(globalLeaderboard, "Global Leaderboard", true)}
+          <Button
+            onClick={() => router.push("/lobby")}
+            className="bg-blue-600 hover:bg-blue-700 transition duration-300 w-full"
+          >
+            Create A Lobby
+          </Button>
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="Enter lobby code"
+              value={lobbyCode}
+              onChange={(e) => setLobbyCode(e.target.value)}
+              className="bg-neutral-800 text-white p-2 rounded flex-grow"
+            />
+            <Button
+              onClick={() => router.push(`/lobby/${lobbyCode}`)}
+              className="bg-green-600 hover:bg-green-700 transition duration-300"
+            >
+              Join Lobby
+            </Button>
+          </div>
         </div>
         <div className="flex-grow flex flex-col items-center justify-center px-8">
           {showHome ? (
@@ -2571,7 +2605,7 @@ const TypingTest: React.FC = () => {
                 placeholder="Enter your name"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                className="bg-gray-800 text-white p-2 rounded w-full"
+                className="bg-neutral-800 text-white p-2 rounded w-full"
               />
               <Button
                 onClick={startTyping}
@@ -2582,7 +2616,7 @@ const TypingTest: React.FC = () => {
             </div>
           ) : isTyping ? (
             <div className="flex flex-col items-center gap-6 w-full max-w-3xl">
-              <div className="relative bg-gray-800 p-6 rounded-lg w-full h-48 overflow-hidden shadow-lg">
+              <div className="relative bg-neutral-800 p-6 rounded-lg w-full h-48 overflow-hidden shadow-lg">
                 <div
                   ref={textContainerRef}
                   className="absolute top-0 left-0 right-0 bottom-0 p-6 text-2xl leading-relaxed overflow-y-auto"
@@ -2644,7 +2678,7 @@ const TypingTest: React.FC = () => {
                   WPM
                 </AlertDescription>
               </Alert>
-              <div className="h-64 bg-gray-800 p-4 rounded-lg shadow-lg mb-8">
+              <div className="h-64 bg-neutral-800 p-4 rounded-lg shadow-lg mb-8">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={typingData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#444" />
