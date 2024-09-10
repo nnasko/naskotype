@@ -185,7 +185,7 @@ nextApp.prepare().then(() => {
             const wordList = generateWordList();
             io.to(lobbyCode).emit("startGame", wordList);
             console.log(`Game started in lobby ${lobbyCode}`);
-          }, 3000);
+          }, 6000);
         }
       }
     });
