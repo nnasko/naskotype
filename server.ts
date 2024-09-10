@@ -1,4 +1,3 @@
-// server.ts
 import { Server, Socket } from "socket.io";
 import { createServer } from "http";
 import express from "express";
@@ -177,17 +176,24 @@ nextApp.prepare().then(() => {
           updatedLobby.participants.length >= 2 &&
           updatedLobby.participants.every((p) => p.isReady)
         ) {
-          // Start the countdown
-          io.to(lobbyCode).emit("startCountdown");
+          io.to(lobbyCode).emit("redirectToGame");
+          
+          setTimeout(() => {
+            io.to(lobbyCode).emit("startCountdown");
+          }, 1000);
 
-          // Wait for 3 seconds, then start the game
           setTimeout(() => {
             const wordList = generateWordList();
             io.to(lobbyCode).emit("startGame", wordList);
             console.log(`Game started in lobby ${lobbyCode}`);
-          }, 6000);
+          }, 4000);
         }
       }
+    });
+
+    socket.on("requestMoreWords", async () => {
+      const additionalWords = generateWordList();
+      socket.emit("additionalWords", additionalWords);
     });
 
     socket.on("gameFinished", async ({ lobbyCode, wpm }) => {
@@ -210,7 +216,6 @@ nextApp.prepare().then(() => {
           (p) => p.isReady === false
         );
         if (allFinished) {
-          // Reset the lobby for a new game
           await prisma.participant.updateMany({
             where: { lobbyId: lobby.id },
             data: { isReady: false },
