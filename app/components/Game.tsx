@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -8,7 +9,8 @@ import { Home, Trophy, Award } from "lucide-react";
 
 interface GameResult {
   username: string;
-  wpm: number | null;
+  wpm: number;
+  score: number;
 }
 
 interface GameState {
@@ -24,28 +26,30 @@ const Game: React.FC = () => {
   const [userInput, setUserInput] = useState("");
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
-  const [totalMistakes, setTotalMistakes] = useState(0);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [results, setResults] = useState<GameResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(3);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isGameOver, setIsGameOver] = useState(false);
+  const [rematchRequested, setRematchRequested] = useState(false);
 
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
   const caretRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const scoreRef = useRef(0);
   const router = useRouter();
+  const resultsRef = useRef<GameResult[]>([]);
 
   const startTyping = useCallback(() => {
     console.log("Starting typing test");
     setIsTyping(true);
     setScore(0);
+    scoreRef.current = 0;
     setTimeLeft(30);
     setCurrentWordIndex(0);
     setUserInput("");
-    setTotalMistakes(0);
     if (textAreaRef.current) textAreaRef.current.focus();
     startTimer();
   }, []);
@@ -67,14 +71,16 @@ const Game: React.FC = () => {
   }, []);
 
   const finishGame = useCallback(() => {
+    const finalScore = scoreRef.current;
     console.log("Finishing game");
-    const wpm = Math.round(score / 0.5); // Calculate WPM based on current score
+    console.log("Final Score:", finalScore);
+    const wpm = finalScore * 2; // Calculate WPM (words per 30 seconds * 2)
     const lobbyCode = window.location.pathname.split("/").pop();
     console.log(
-      `Emitting gameFinished event. Lobby: ${lobbyCode}, WPM: ${wpm}`
+      `Emitting gameFinished event. Lobby: ${lobbyCode}, WPM: ${wpm}, Score: ${finalScore}`
     );
-    socket?.emit("gameFinished", { lobbyCode, wpm });
-  }, [score, socket]);
+    socket?.emit("gameFinished", { lobbyCode, wpm, score: finalScore });
+  }, [socket]);
 
   useEffect(() => {
     console.log("Setting up socket connection");
@@ -89,89 +95,91 @@ const Game: React.FC = () => {
     newSocket.on("connect", () => {
       console.log("Connected to game socket");
       const lobbyCode = window.location.pathname.split("/").pop();
-      newSocket.emit("requestGameState", { lobbyCode });
+      newSocket.emit("joinGame", { lobbyCode });
     });
 
     newSocket.on("gameState", (state: GameState) => {
       console.log("Received game state", state);
       setGameState(state);
-      const now = Date.now();
-      if (state.startTime > now) {
-        setCountdown(Math.ceil((state.startTime - now) / 1000));
+      setWordList(state.wordList);
+      if (state.startTime > Date.now()) {
+        setCountdown(Math.ceil((state.startTime - Date.now()) / 1000));
       } else {
-        setWordList(state.wordList);
         startTyping();
       }
     });
 
-    newSocket.on("gameStarting", (state: GameState) => {
-      console.log("Game starting", state);
-      setGameState(state);
+    newSocket.on("reconnect", (attemptNumber) => {
+      console.log(
+        "Reconnected to game socket after",
+        attemptNumber,
+        "attempts"
+      );
+      setError(null);
+      const lobbyCode = window.location.pathname.split("/").pop();
+      newSocket.emit("joinGame", { lobbyCode });
+    });
+
+    newSocket.on("startCountdown", () => {
+      console.log("Starting countdown");
       setCountdown(3);
     });
 
     newSocket.on("playerFinished", (result: GameResult) => {
-      console.log("Player finished", result);
+      console.log("Received playerFinished event:", result);
       setResults((prevResults) => {
         const newResults = [...prevResults, result];
+        resultsRef.current = newResults;
         console.log("Updated results:", newResults);
         return newResults;
       });
     });
 
     newSocket.on("gameOver", (finalResults: GameResult[]) => {
-      console.log("Game over", finalResults);
+      console.log("Received gameOver event, final results:", finalResults);
       setResults(finalResults);
-      setIsTyping(false);
+      resultsRef.current = finalResults;
       setIsGameOver(true);
-      console.log("Game over state set, final results:", finalResults);
+      setIsTyping(false);
+    });
+
+    newSocket.on("rematchRequested", () => {
+      console.log("Rematch requested");
+      setRematchRequested(true);
+    });
+
+    newSocket.on("rematchAccepted", () => {
+      console.log("Rematch accepted, resetting game");
+      resetGame();
     });
 
     newSocket.on("error", (errorMessage: string) => {
-      console.error("Socket error:", errorMessage);
+      console.error("Received error event:", errorMessage);
       setError(errorMessage);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log("Disconnected from game socket:", reason);
+      setError("Disconnected from the game. Trying to reconnect...");
     });
 
     return () => {
       console.log("Cleaning up socket connection");
       newSocket.disconnect();
     };
-  }, [startTyping]);
-
-  // Add this useEffect to log changes to results and isGameOver
-  useEffect(() => {
-    console.log("Results updated:", results);
-  }, [results]);
-
-  useEffect(() => {
-    console.log("isGameOver updated:", isGameOver);
-  }, [isGameOver]);
+  }, []);
 
   useEffect(() => {
     if (countdown === null) return;
 
-    console.log("Starting countdown", countdown);
-    const countdownInterval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === 1) {
-          clearInterval(countdownInterval);
-          console.log("Countdown finished");
-          if (gameState) {
-            setWordList(gameState.wordList);
-            startTyping();
-          }
-          return null;
-        }
-        return prev! - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(countdownInterval);
-  }, [countdown, gameState, startTyping]);
-
-  useEffect(() => {
-    console.log("Results updated:", results);
-  }, [results]);
+    console.log("Countdown:", countdown);
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else {
+      startTyping();
+    }
+  }, [countdown, startTyping]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
@@ -180,16 +188,14 @@ const Game: React.FC = () => {
     if (inputValue.endsWith(" ")) {
       const typedWord = inputValue.trim();
       if (typedWord === wordList[currentWordIndex]) {
-        setScore((prevScore) => prevScore + 1);
+        setScore((prevScore) => {
+          const newScore = prevScore + 1;
+          console.log("Updated score:", newScore);
+          scoreRef.current = newScore;
+          return newScore;
+        });
         setCurrentWordIndex((prevIndex) => prevIndex + 1);
         setUserInput("");
-
-        if (currentWordIndex === wordList.length - 1) {
-          console.log("Requesting more words");
-          socket?.emit("requestMoreWords");
-        }
-      } else {
-        setTotalMistakes((prev) => prev + 1);
       }
     }
     updateCaretPosition();
@@ -277,6 +283,27 @@ const Game: React.FC = () => {
     }
   };
 
+  const handleRematchRequest = () => {
+    const lobbyCode = window.location.pathname.split("/").pop();
+    socket?.emit("rematchRequest", { lobbyCode });
+    setRematchRequested(true);
+  };
+
+  const handleRematchAccept = () => {
+    const lobbyCode = window.location.pathname.split("/").pop();
+    socket?.emit("rematchAccept", { lobbyCode });
+  };
+
+  const resetGame = () => {
+    setIsGameOver(false);
+    setRematchRequested(false);
+    setResults([]);
+    setScore(0);
+    setCurrentWordIndex(0);
+    setUserInput("");
+    setCountdown(3);
+  };
+
   const renderGameOver = () => (
     <div className="mt-8 w-full max-w-2xl mx-auto">
       <Alert
@@ -292,23 +319,16 @@ const Game: React.FC = () => {
               <span className="font-bold text-green-400">{score}</span> words
             </span>
             <span>
-              WPM:{" "}
-              <span className="font-bold text-blue-400">
-                {Math.round(score / 0.5)}
-              </span>
+              WPM: <span className="font-bold text-blue-400">{score * 2}</span>
             </span>
-          </div>
-          <div className="mt-2">
-            Total mistakes:{" "}
-            <span className="font-bold text-red-400">{totalMistakes}</span>
           </div>
         </AlertDescription>
       </Alert>
       <div className="bg-neutral-800 rounded-lg p-6 shadow-lg">
         <h3 className="text-2xl font-bold mb-4 text-center">Leaderboard</h3>
-        {results.length > 0 ? (
+        {resultsRef.current.length > 0 ? (
           <ul className="space-y-4">
-            {results.map((result, index) => (
+            {resultsRef.current.map((result, index) => (
               <li
                 key={index}
                 className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
@@ -325,10 +345,16 @@ const Game: React.FC = () => {
                   )}
                   <span className="text-lg">{result.username}</span>
                 </div>
-                <span className="text-lg font-bold">
-                  {result.wpm}{" "}
-                  <span className="text-sm text-neutral-400">WPM</span>
-                </span>
+                <div className="text-right">
+                  <span className="text-lg font-bold">
+                    {result.wpm}{" "}
+                    <span className="text-sm text-neutral-400">WPM</span>
+                  </span>
+                  <br />
+                  <span className="text-sm text-neutral-400">
+                    {result.score} words
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
@@ -336,12 +362,29 @@ const Game: React.FC = () => {
           <p className="text-center text-neutral-400">No results yet</p>
         )}
       </div>
-      <Button
-        onClick={() => router.push("/")}
-        className="mt-8 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 w-full"
-      >
-        Back to Home
-      </Button>
+      <div className="mt-8 flex justify-center space-x-4">
+        {rematchRequested ? (
+          <Button
+            onClick={handleRematchAccept}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+          >
+            Accept Rematch
+          </Button>
+        ) : (
+          <Button
+            onClick={handleRematchRequest}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+          >
+            Request Rematch
+          </Button>
+        )}
+        <Button
+          onClick={() => router.push("/")}
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+        >
+          Back to Home
+        </Button>
+      </div>
     </div>
   );
 
@@ -351,6 +394,12 @@ const Game: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="w-full max-w-4xl">
         <div className="flex justify-between items-center mb-8">
           <Button
@@ -362,7 +411,7 @@ const Game: React.FC = () => {
           <h1 className="text-5xl font-bold text-center">naskotype</h1>
           <div className="w-24"></div>
         </div>
-        {countdown !== null ? (
+        {countdown !== null && countdown > 0 ? (
           <div className="text-center">
             <h2 className="text-4xl font-bold mb-4">
               Game starts in: {countdown}

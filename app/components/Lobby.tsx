@@ -49,8 +49,8 @@ const Lobby: React.FC = () => {
       setError(errorMessage);
     });
 
-    newSocket.on("redirectToGame", (lobbyCode: string) => {
-      console.log("Redirecting to game:", lobbyCode);
+    newSocket.on("gameStarting", (lobbyCode: string) => {
+      console.log("Game starting, redirecting to game:", lobbyCode);
       router.push(`/game/${lobbyCode}`);
     });
 
@@ -67,6 +67,9 @@ const Lobby: React.FC = () => {
   if (error) {
     return <div className="text-red-500">{error}</div>;
   }
+
+  const allReady =
+    participants.length >= 2 && participants.every((p) => p.isReady);
 
   return (
     <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8 relative overflow-hidden">
@@ -106,6 +109,11 @@ const Lobby: React.FC = () => {
         >
           {isReady ? "Ready!" : "Ready Up"}
         </Button>
+        {allReady && (
+          <p className="text-green-500 mt-4 text-center">
+            All players are ready. The game will start shortly!
+          </p>
+        )}
       </div>
     </div>
   );
