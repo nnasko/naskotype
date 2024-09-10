@@ -68,8 +68,11 @@ const Game: React.FC = () => {
 
   const finishGame = useCallback(() => {
     console.log("Finishing game");
-    const wpm = Math.round(score / 0.5);
+    const wpm = Math.round(score / 0.5); // Calculate WPM based on current score
     const lobbyCode = window.location.pathname.split("/").pop();
+    console.log(
+      `Emitting gameFinished event. Lobby: ${lobbyCode}, WPM: ${wpm}`
+    );
     socket?.emit("gameFinished", { lobbyCode, wpm });
   }, [score, socket]);
 
@@ -109,7 +112,11 @@ const Game: React.FC = () => {
 
     newSocket.on("playerFinished", (result: GameResult) => {
       console.log("Player finished", result);
-      setResults((prevResults) => [...prevResults, result]);
+      setResults((prevResults) => {
+        const newResults = [...prevResults, result];
+        console.log("Updated results:", newResults);
+        return newResults;
+      });
     });
 
     newSocket.on("gameOver", (finalResults: GameResult[]) => {
@@ -117,6 +124,7 @@ const Game: React.FC = () => {
       setResults(finalResults);
       setIsTyping(false);
       setIsGameOver(true);
+      console.log("Game over state set, final results:", finalResults);
     });
 
     newSocket.on("error", (errorMessage: string) => {
@@ -129,6 +137,15 @@ const Game: React.FC = () => {
       newSocket.disconnect();
     };
   }, [startTyping]);
+
+  // Add this useEffect to log changes to results and isGameOver
+  useEffect(() => {
+    console.log("Results updated:", results);
+  }, [results]);
+
+  useEffect(() => {
+    console.log("isGameOver updated:", isGameOver);
+  }, [isGameOver]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -151,6 +168,10 @@ const Game: React.FC = () => {
 
     return () => clearInterval(countdownInterval);
   }, [countdown, gameState, startTyping]);
+
+  useEffect(() => {
+    console.log("Results updated:", results);
+  }, [results]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
@@ -285,31 +306,35 @@ const Game: React.FC = () => {
       </Alert>
       <div className="bg-neutral-800 rounded-lg p-6 shadow-lg">
         <h3 className="text-2xl font-bold mb-4 text-center">Leaderboard</h3>
-        <ul className="space-y-4">
-          {results.map((result, index) => (
-            <li
-              key={index}
-              className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
-            >
-              <div className="flex items-center">
-                {index === 0 && (
-                  <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
-                )}
-                {index === 1 && (
-                  <Award className="h-6 w-6 text-gray-400 mr-2" />
-                )}
-                {index === 2 && (
-                  <Award className="h-6 w-6 text-yellow-700 mr-2" />
-                )}
-                <span className="text-lg">{result.username}</span>
-              </div>
-              <span className="text-lg font-bold">
-                {result.wpm}{" "}
-                <span className="text-sm text-neutral-400">WPM</span>
-              </span>
-            </li>
-          ))}
-        </ul>
+        {results.length > 0 ? (
+          <ul className="space-y-4">
+            {results.map((result, index) => (
+              <li
+                key={index}
+                className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
+              >
+                <div className="flex items-center">
+                  {index === 0 && (
+                    <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
+                  )}
+                  {index === 1 && (
+                    <Award className="h-6 w-6 text-gray-400 mr-2" />
+                  )}
+                  {index === 2 && (
+                    <Award className="h-6 w-6 text-yellow-700 mr-2" />
+                  )}
+                  <span className="text-lg">{result.username}</span>
+                </div>
+                <span className="text-lg font-bold">
+                  {result.wpm}{" "}
+                  <span className="text-sm text-neutral-400">WPM</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-center text-neutral-400">No results yet</p>
+        )}
       </div>
       <Button
         onClick={() => router.push("/")}
@@ -375,12 +400,8 @@ const Game: React.FC = () => {
               </div>
             </div>
           </div>
-        ) : isGameOver ? (
-          renderGameOver()
         ) : (
-          <div className="text-center">
-            <h2 className="text-2xl mb-4">Waiting for the game to start...</h2>
-          </div>
+          renderGameOver()
         )}
       </div>
     </div>

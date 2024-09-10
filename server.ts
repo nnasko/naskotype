@@ -43,6 +43,7 @@ nextApp.prepare().then(() => {
   io.use((socket, next) => {
     const token = socket.handshake.auth.token;
     if (!token) {
+      console.log("Authentication error: No token provided");
       return next(new Error("Authentication error"));
     }
     try {
@@ -50,8 +51,10 @@ nextApp.prepare().then(() => {
         userId: number;
       };
       socket.data.userId = decoded.userId;
+      console.log(`User authenticated: ${decoded.userId}`);
       next();
     } catch (error) {
+      console.error("Authentication error:", error);
       return next(new Error("Authentication error"));
     }
   });
@@ -61,8 +64,10 @@ nextApp.prepare().then(() => {
 
     socket.on("createLobby", async () => {
       const userId = socket.data.userId;
+      console.log(`User ${userId} is creating a lobby`);
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
+        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
@@ -81,6 +86,7 @@ nextApp.prepare().then(() => {
         include: { participants: { include: { user: true } } },
       });
 
+      console.log(`Lobby created: ${lobbyCode}`);
       socket.join(lobbyCode);
       socket.emit("lobbyCreated", lobbyCode);
       io.to(lobbyCode).emit(
@@ -94,9 +100,11 @@ nextApp.prepare().then(() => {
     });
 
     socket.on("joinLobby", async ({ lobbyCode }) => {
+      console.log(`User ${socket.data.userId} is joining lobby ${lobbyCode}`);
       const userId = socket.data.userId;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
+        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
@@ -107,6 +115,7 @@ nextApp.prepare().then(() => {
       });
 
       if (!lobby) {
+        console.log(`Lobby not found: ${lobbyCode}`);
         socket.emit("error", "Lobby not found");
         return;
       }
@@ -115,6 +124,7 @@ nextApp.prepare().then(() => {
         (p) => p.userId === userId
       );
       if (existingParticipant) {
+        console.log(`User ${userId} is already in lobby ${lobbyCode}`);
         socket.join(lobbyCode);
         socket.emit(
           "lobbyUpdate",
@@ -134,6 +144,7 @@ nextApp.prepare().then(() => {
         },
       });
 
+      console.log(`User ${userId} joined lobby ${lobbyCode}`);
       socket.join(lobbyCode);
 
       const updatedLobby = await prisma.lobby.findUnique({
@@ -164,6 +175,7 @@ nextApp.prepare().then(() => {
       });
 
       if (!lobby) {
+        console.log(`Lobby not found: ${lobbyCode}`);
         socket.emit("error", "Lobby not found");
         return;
       }
@@ -216,24 +228,31 @@ nextApp.prepare().then(() => {
     });
 
     socket.on("requestGameState", async ({ lobbyCode }) => {
+      console.log(`Game state requested for lobby: ${lobbyCode}`);
       const gameState = activeGames.get(lobbyCode);
       if (gameState) {
         socket.emit("gameState", gameState);
       } else {
+        console.log(`Game not found for lobby: ${lobbyCode}`);
         socket.emit("error", "Game not found");
       }
     });
 
     socket.on("gameFinished", async ({ lobbyCode, wpm }) => {
+      console.log(
+        `Game finished for user ${socket.data.userId} in lobby ${lobbyCode} with WPM: ${wpm}`
+      );
       const userId = socket.data.userId;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
+        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
 
       const gameState = activeGames.get(lobbyCode);
       if (!gameState) {
+        console.log(`Game not found for lobby: ${lobbyCode}`);
         socket.emit("error", "Game not found");
         return;
       }
@@ -246,11 +265,34 @@ nextApp.prepare().then(() => {
         participant.wpm = wpm;
       }
 
-      io.to(lobbyCode).emit("playerFinished", { username: user.username, wpm });
+      const playerResult = { username: user.username, wpm };
+      io.to(lobbyCode).emit("playerFinished", playerResult);
+      console.log(
+        `Emitted playerFinished event for ${user.username} with WPM ${wpm}`
+      );
 
-      if (gameState.participants.every((p) => p.finished)) {
-        const sortedParticipants = gameState.participants.sort(
-          (a, b) => (b.wpm || 0) - (a.wpm || 0)
+      // Check if all participants have finished OR the game time has elapsed
+      const allFinishedOrTimeUp =
+        gameState.participants.every((p) => p.finished) ||
+        (Date.now() - gameState.startTime) / 1000 >= 30; // 30 seconds
+
+      if (allFinishedOrTimeUp) {
+        console.log(`Game over for lobby ${lobbyCode}`);
+        // If all finished or time's up, mark remaining participants as finished
+        gameState.participants.forEach((p) => {
+          if (!p.finished) {
+            p.finished = true;
+            p.wpm = 0; // Set default WPM for unfinished participants
+          }
+        });
+
+        const sortedParticipants = gameState.participants
+          .map((p) => ({ username: p.username, wpm: p.wpm }))
+          .sort((a, b) => (b.wpm || 0) - (a.wpm || 0));
+
+        console.log(
+          `Emitting gameOver event with results:`,
+          sortedParticipants
         );
         io.to(lobbyCode).emit("gameOver", sortedParticipants);
         activeGames.delete(lobbyCode);
