@@ -11,6 +11,19 @@ const nextApp = next({ dev });
 const nextHandler = nextApp.getRequestHandler();
 const prisma = new PrismaClient();
 
+interface GameState {
+  wordList: string[];
+  startTime: number;
+  participants: {
+    userId: number;
+    username: string;
+    finished: boolean;
+    wpm: number | null;
+  }[];
+}
+
+const activeGames = new Map<string, GameState>();
+
 function generateLobbyCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
@@ -141,6 +154,9 @@ nextApp.prepare().then(() => {
     });
 
     socket.on("playerReady", async ({ lobbyCode, isReady }) => {
+      console.log(
+        `Player ${socket.id} ready status: ${isReady} in lobby ${lobbyCode}`
+      );
       const userId = socket.data.userId;
       const lobby = await prisma.lobby.findUnique({
         where: { code: lobbyCode },
@@ -176,24 +192,36 @@ nextApp.prepare().then(() => {
           updatedLobby.participants.length >= 2 &&
           updatedLobby.participants.every((p) => p.isReady)
         ) {
-          io.to(lobbyCode).emit("redirectToGame");
-          
+          console.log(
+            `All players ready in lobby ${lobbyCode}. Starting game.`
+          );
+          const wordList = generateWordList();
+          const gameState: GameState = {
+            wordList,
+            startTime: Date.now() + 3000, // Start in 3 seconds
+            participants: updatedLobby.participants.map((p) => ({
+              userId: p.userId,
+              username: p.user.username,
+              finished: false,
+              wpm: null,
+            })),
+          };
+          activeGames.set(lobbyCode, gameState);
+          io.to(lobbyCode).emit("redirectToGame", lobbyCode);
           setTimeout(() => {
-            io.to(lobbyCode).emit("startCountdown");
-          }, 1000);
-
-          setTimeout(() => {
-            const wordList = generateWordList();
-            io.to(lobbyCode).emit("startGame", wordList);
-            console.log(`Game started in lobby ${lobbyCode}`);
-          }, 4000);
+            io.to(lobbyCode).emit("gameStarting", gameState);
+          }, 100);
         }
       }
     });
 
-    socket.on("requestMoreWords", async () => {
-      const additionalWords = generateWordList();
-      socket.emit("additionalWords", additionalWords);
+    socket.on("requestGameState", async ({ lobbyCode }) => {
+      const gameState = activeGames.get(lobbyCode);
+      if (gameState) {
+        socket.emit("gameState", gameState);
+      } else {
+        socket.emit("error", "Game not found");
+      }
     });
 
     socket.on("gameFinished", async ({ lobbyCode, wpm }) => {
@@ -204,23 +232,49 @@ nextApp.prepare().then(() => {
         return;
       }
 
+      const gameState = activeGames.get(lobbyCode);
+      if (!gameState) {
+        socket.emit("error", "Game not found");
+        return;
+      }
+
+      const participant = gameState.participants.find(
+        (p) => p.userId === userId
+      );
+      if (participant) {
+        participant.finished = true;
+        participant.wpm = wpm;
+      }
+
       io.to(lobbyCode).emit("playerFinished", { username: user.username, wpm });
 
-      const lobby = await prisma.lobby.findUnique({
-        where: { code: lobbyCode },
-        include: { participants: true },
-      });
-
-      if (lobby) {
-        const allFinished = lobby.participants.every(
-          (p) => p.isReady === false
+      if (gameState.participants.every((p) => p.finished)) {
+        const sortedParticipants = gameState.participants.sort(
+          (a, b) => (b.wpm || 0) - (a.wpm || 0)
         );
-        if (allFinished) {
-          await prisma.participant.updateMany({
-            where: { lobbyId: lobby.id },
-            data: { isReady: false },
-          });
-          io.to(lobbyCode).emit("gameOver");
+        io.to(lobbyCode).emit("gameOver", sortedParticipants);
+        activeGames.delete(lobbyCode);
+
+        // Reset lobby
+        await prisma.participant.updateMany({
+          where: { lobbyId: lobbyCode },
+          data: { isReady: false },
+        });
+
+        const updatedLobby = await prisma.lobby.findUnique({
+          where: { code: lobbyCode },
+          include: { participants: { include: { user: true } } },
+        });
+
+        if (updatedLobby) {
+          io.to(lobbyCode).emit(
+            "lobbyUpdate",
+            updatedLobby.participants.map((p) => ({
+              id: p.id,
+              username: p.user.username,
+              isReady: false,
+            }))
+          );
         }
       }
     });
