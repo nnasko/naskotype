@@ -9,26 +9,6 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      animation: {
-        shoot: "shoot 3s linear infinite",
-        blink: "blink 1s step-end infinite",
-      },
-      keyframes: {
-        shoot: {
-          "0%": {
-            transform: "translateX(0) translateY(0) rotate(-45deg)",
-            opacity: "1",
-          },
-          "100%": {
-            transform: "translateX(300px) translateY(300px) rotate(-45deg)",
-            opacity: "0",
-          },
-        },
-        blink: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0" },
-        },
-      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

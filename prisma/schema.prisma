@@ -1,11 +1,38 @@
 // prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
+model User {
+  id          Int           @id @default(autoincrement())
+  username    String        @unique
+  password    String
+  lobbies     Lobby[]
+  Participant Participant[]
+}
+
+model Lobby {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  createdAt    DateTime      @default(now())
+  creatorId    Int
+  creator      User          @relation(fields: [creatorId], references: [id])
+  participants Participant[]
+}
+
+model Participant {
+  id      Int     @id @default(autoincrement())
+  userId  Int
+  user    User    @relation(fields: [userId], references: [id])
+  lobbyId String
+  lobby   Lobby   @relation(fields: [lobbyId], references: [id])
+  isReady Boolean @default(false)
 }
 
 model LeaderboardEntry {

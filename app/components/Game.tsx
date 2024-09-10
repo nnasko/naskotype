@@ -1,47 +1,35 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+// components/Game.tsx
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { io, Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, Home } from "lucide-react";
-import { words } from "@/lib/words";
 
-interface TypingData {
-  time: number;
-  rawSpeed: number;
-  mistakes: number;
+interface GameResult {
+  username: string;
   wpm: number;
 }
 
-const TypingTest: React.FC = () => {
+const Game: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [wordList, setWordList] = useState<string[]>([]);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [userInput, setUserInput] = useState("");
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
-  const [typingData, setTypingData] = useState<TypingData[]>([]);
   const [totalMistakes, setTotalMistakes] = useState(0);
-  const [typedWords, setTypedWords] = useState<string[]>([]);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [results, setResults] = useState<GameResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
   const caretRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
-
-  const generateWordList = useCallback(() => {
-    return Array.from(
-      { length: 100 },
-      () => words[Math.floor(Math.random() * words.length)]
-    );
-  }, []);
-
-  useEffect(() => {
-    setWordList(generateWordList());
-  }, [generateWordList]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -50,25 +38,19 @@ const TypingTest: React.FC = () => {
         if (prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
           setIsTyping(false);
+          finishGame();
           return 0;
         }
-        const newTime = prev - 1;
-        const elapsedTime = 30 - newTime;
-        const rawSpeed = (typedWords.join(" ").length / elapsedTime) * 60;
-        const wpm = Math.round((score / elapsedTime) * 60);
-        setTypingData((prevData) => [
-          ...prevData,
-          {
-            time: elapsedTime,
-            rawSpeed: Math.round(rawSpeed),
-            mistakes: totalMistakes,
-            wpm: wpm,
-          },
-        ]);
-        return newTime;
+        return prev - 1;
       });
     }, 1000);
-  }, [score, totalMistakes, typedWords]);
+  }, []);
+
+  const finishGame = useCallback(() => {
+    const wpm = Math.round(score / 0.5);
+    const lobbyCode = window.location.pathname.split("/").pop();
+    socket?.emit("gameFinished", { lobbyCode, wpm });
+  }, [score, socket]);
 
   const startTyping = useCallback(() => {
     setIsTyping(true);
@@ -76,33 +58,73 @@ const TypingTest: React.FC = () => {
     setTimeLeft(30);
     setCurrentWordIndex(0);
     setUserInput("");
-    setTypingData([]);
-    setTypedWords([]);
     setTotalMistakes(0);
     if (textAreaRef.current) textAreaRef.current.focus();
     startTimer();
   }, [startTimer]);
 
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    const newSocket = io("http://localhost:3000", {
+      transports: ["websocket"],
+      auth: { token },
+    });
+
+    setSocket(newSocket);
+
+    newSocket.on("startCountdown", () => {
+      setCountdown(3);
+    });
+
+    newSocket.on("startGame", (serverWordList: string[]) => {
+      setWordList(serverWordList);
+      startTyping();
+    });
+
+    newSocket.on("playerFinished", (result: GameResult) => {
+      setResults((prevResults) => [...prevResults, result]);
+    });
+
+    newSocket.on("error", (errorMessage: string) => {
+      console.error("Socket error:", errorMessage);
+      setError(errorMessage);
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [startTyping]);
+
+  useEffect(() => {
+    if (countdown === null) return;
+
+    const countdownInterval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === 1) {
+          clearInterval(countdownInterval);
+          return null;
+        }
+        return prev! - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdownInterval);
+  }, [countdown]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
-    if (!isTyping && inputValue.trim() !== "") {
-      startTyping();
-    }
-    const currentWord = wordList[currentWordIndex];
+    setUserInput(inputValue);
 
     if (inputValue.endsWith(" ")) {
       const typedWord = inputValue.trim();
-      if (typedWord === currentWord) {
+      if (typedWord === wordList[currentWordIndex]) {
         setScore((prevScore) => prevScore + 1);
         setCurrentWordIndex((prevIndex) => prevIndex + 1);
-        setTypedWords((prev) => [...prev, typedWord]);
         setUserInput("");
       } else {
         setTotalMistakes((prev) => prev + 1);
         setUserInput(inputValue);
       }
-    } else {
-      setUserInput(inputValue);
     }
     updateCaretPosition();
   };
@@ -189,20 +211,34 @@ const TypingTest: React.FC = () => {
     }
   };
 
+  if (error) {
+    return <div className="text-red-500">{error}</div>;
+  }
+
   return (
     <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
       <div className="w-full max-w-4xl">
         <div className="flex justify-between items-center mb-8">
-          <button
+          <Button
             onClick={() => router.push("/")}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
           >
             <Home className="mr-2 h-4 w-4 inline" /> Home
-          </button>
+          </Button>
           <h1 className="text-5xl font-bold text-center">naskotype</h1>
           <div className="w-24"></div>
         </div>
-        {timeLeft > 0 ? (
+        {countdown !== null ? (
+          <div className="text-center">
+            <h2 className="text-6xl font-bold mb-4">
+              Game starts in: {countdown}
+            </h2>
+          </div>
+        ) : !isTyping && timeLeft === 30 ? (
+          <div className="text-center">
+            <h2 className="text-2xl mb-4">Waiting for the game to start...</h2>
+          </div>
+        ) : timeLeft > 0 ? (
           <div className="flex flex-col items-center gap-6 w-full">
             <div className="relative bg-neutral-800 p-6 rounded-lg w-full h-64 overflow-hidden shadow-lg">
               <div
@@ -255,12 +291,24 @@ const TypingTest: React.FC = () => {
                 <span className="font-bold text-red-400">{totalMistakes}</span>
               </AlertDescription>
             </Alert>
-            <button
-              onClick={startTyping}
+            {results.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-xl font-bold mb-2">Results:</h3>
+                <ul>
+                  {results.map((result, index) => (
+                    <li key={index} className="text-lg">
+                      {result.username}: {result.wpm} WPM
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <Button
+              onClick={() => router.push("/")}
               className="mt-8 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 w-full"
             >
-              Try Again
-            </button>
+              Back to Home
+            </Button>
           </div>
         )}
       </div>
@@ -268,4 +316,4 @@ const TypingTest: React.FC = () => {
   );
 };
 
-export default TypingTest;
+export default Game;

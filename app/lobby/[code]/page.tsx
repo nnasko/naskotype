@@ -1,5 +1,5 @@
-import LobbyPage from "@/app/components/LobbyPage";
+import Lobby from "@/app/components/Lobby";
 
 export default function LobbyCodePage() {
-  return <LobbyPage />;
+  return <Lobby />;
 }
