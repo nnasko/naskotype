@@ -19,6 +19,7 @@ export async function GET(
   const token = authorization.split(" ")[1];
 
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
       userId: number;
     };
