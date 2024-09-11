@@ -301,10 +301,10 @@ const HomePage: React.FC = () => {
         </header>
 
         <main className="flex p-8 gap-8">
-          <div className="w-1/4">
-            <h2 className="text-2xl font-bold mb-4">Lobby System</h2>
-            {isLoggedIn ? (
-              <>
+          {isLoggedIn ? (
+            <>
+              <div className="w-1/4">
+                <h2 className="text-2xl font-bold mb-4">Lobby System</h2>
                 <LobbyCreation />
                 <div className="flex gap-2 mb-4">
                   <Input
@@ -343,108 +343,122 @@ const HomePage: React.FC = () => {
                     ))}
                   </div>
                 </div>
-              </>
-            ) : (
-              <p>Please log in to access the lobby system.</p>
-            )}
-          </div>
-
-          <div className="w-3/4 pt-16">
-            {!isLoggedIn ? (
-              <div className="flex flex-col items-center gap-4 mb-8">
-                <Input
-                  type="text"
-                  placeholder="Username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-                <Input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <Button onClick={handleLogin}>Login</Button>
-                <Button onClick={handleRegister}>Register</Button>
               </div>
-            ) : (
-              <div className="flex flex-col items-center gap-6 w-full">
-                {timeLeft > 0 ? (
-                  <>
-                    <div className="relative bg-neutral-800 p-6 rounded-lg w-full h-64 overflow-hidden shadow-lg">
-                      <div
-                        ref={textContainerRef}
-                        className="absolute top-0 left-0 right-0 bottom-0 p-6 text-2xl leading-relaxed overflow-y-auto"
+              <div className="w-3/4">
+                <div className="flex flex-col items-center gap-6 w-full">
+                  {timeLeft > 0 ? (
+                    <>
+                      <div className="relative bg-neutral-800 p-6 rounded-lg w-full h-64 overflow-hidden shadow-lg">
+                        <div
+                          ref={textContainerRef}
+                          className="absolute top-0 left-0 right-0 bottom-0 p-6 text-2xl leading-relaxed overflow-y-auto"
+                        >
+                          {wordList.map((word, index) =>
+                            renderWord(word, index)
+                          )}
+                        </div>
+                        <div
+                          ref={caretRef}
+                          className="absolute w-0.5 h-8 bg-white animate-blink"
+                          style={{ transition: "left 0.1s, top 0.1s" }}
+                        ></div>
+                        <textarea
+                          ref={textAreaRef}
+                          value={userInput}
+                          onChange={handleInputChange}
+                          className="absolute top-0 left-0 right-0 bottom-0 bg-transparent text-transparent caret-transparent resize-none p-6 outline-none text-2xl"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="flex justify-between w-full text-xl">
+                        <div>
+                          Time left:{" "}
+                          <span className="font-bold text-blue-400">
+                            {timeLeft}s
+                          </span>
+                        </div>
+                        <div>
+                          Score:{" "}
+                          <span className="font-bold text-green-400">
+                            {score}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="w-full">
+                      <Alert
+                        variant="default"
+                        className="mb-6 bg-blue-900 border-blue-700"
                       >
-                        {wordList.map((word, index) => renderWord(word, index))}
-                      </div>
-                      <div
-                        ref={caretRef}
-                        className="absolute w-0.5 h-8 bg-white animate-blink"
-                        style={{ transition: "left 0.1s, top 0.1s" }}
-                      ></div>
-                      <textarea
-                        ref={textAreaRef}
-                        value={userInput}
-                        onChange={handleInputChange}
-                        className="absolute top-0 left-0 right-0 bottom-0 bg-transparent text-transparent caret-transparent resize-none p-6 outline-none text-2xl"
-                        autoFocus
-                      />
+                        <AlertCircle className="h-5 w-5 text-blue-400" />
+                        <AlertTitle className="text-xl font-bold">
+                          Times up!
+                        </AlertTitle>
+                        <AlertDescription className="text-lg">
+                          Final score:{" "}
+                          <span className="font-bold text-green-400">
+                            {score}
+                          </span>{" "}
+                          words
+                          <br />
+                          WPM:{" "}
+                          <span className="font-bold text-blue-400">
+                            {Math.round(score / 0.5)}
+                          </span>
+                          <br />
+                          Total mistakes:{" "}
+                          <span className="font-bold text-red-400">
+                            {totalMistakes}
+                          </span>
+                        </AlertDescription>
+                      </Alert>
+                      <Button
+                        onClick={startTyping}
+                        className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 w-full"
+                      >
+                        Try Again
+                      </Button>
                     </div>
-                    <div className="flex justify-between w-full text-xl">
-                      <div>
-                        Time left:{" "}
-                        <span className="font-bold text-blue-400">
-                          {timeLeft}s
-                        </span>
-                      </div>
-                      <div>
-                        Score:{" "}
-                        <span className="font-bold text-green-400">
-                          {score}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="w-full">
-                    <Alert
-                      variant="default"
-                      className="mb-6 bg-blue-900 border-blue-700"
-                    >
-                      <AlertCircle className="h-5 w-5 text-blue-400" />
-                      <AlertTitle className="text-xl font-bold">
-                        Times up!
-                      </AlertTitle>
-                      <AlertDescription className="text-lg">
-                        Final score:{" "}
-                        <span className="font-bold text-green-400">
-                          {score}
-                        </span>{" "}
-                        words
-                        <br />
-                        WPM:{" "}
-                        <span className="font-bold text-blue-400">
-                          {Math.round(score / 0.5)}
-                        </span>
-                        <br />
-                        Total mistakes:{" "}
-                        <span className="font-bold text-red-400">
-                          {totalMistakes}
-                        </span>
-                      </AlertDescription>
-                    </Alert>
-                    <Button
-                      onClick={startTyping}
-                      className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 w-full"
-                    >
-                      Try Again
-                    </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className="w-full flex justify-center items-center min-h-[calc(100vh-96px)]">
+              <div className="bg-neutral-800 p-8 rounded-lg shadow-lg w-full max-w-md">
+                <h1 className="text-3xl font-bold text-center mb-6">
+                  Welcome to naskotype
+                </h1>
+                <div className="flex flex-col gap-4">
+                  <Input
+                    type="text"
+                    placeholder="Username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                  <Input
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <Button
+                    onClick={handleLogin}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-md text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                  >
+                    Login
+                  </Button>
+                  <Button
+                    onClick={handleRegister}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-md text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                  >
+                    Register
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
