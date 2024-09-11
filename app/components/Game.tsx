@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-"use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
@@ -26,7 +24,6 @@ const Game: React.FC = () => {
   const [userInput, setUserInput] = useState("");
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [results, setResults] = useState<GameResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(3);
@@ -41,6 +38,90 @@ const Game: React.FC = () => {
   const scoreRef = useRef(0);
   const router = useRouter();
   const resultsRef = useRef<GameResult[]>([]);
+  const socketRef = useRef<Socket | null>(null);
+
+  const setupSocket = useCallback(() => {
+    const token = localStorage.getItem("token");
+    const newSocket = io("http://localhost:3000", {
+      transports: ["websocket"],
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    newSocket.on("connect", () => {
+      console.log("Connected to game socket");
+      setError(null);
+      const lobbyCode = window.location.pathname.split("/").pop();
+      newSocket.emit("joinGame", { lobbyCode });
+    });
+
+    newSocket.on("connect_error", (error) => {
+      console.error("Connection error:", error);
+      setError("Failed to connect to the game server. Please try again.");
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log("Disconnected from game socket:", reason);
+      setError("Disconnected from the game server. Attempting to reconnect...");
+    });
+
+    newSocket.on("gameState", (state: GameState) => {
+      console.log("Received game state", state);
+      setGameState(state);
+      setWordList(state.wordList);
+      if (state.startTime > Date.now()) {
+        setCountdown(Math.ceil((state.startTime - Date.now()) / 1000));
+      } else {
+        startTyping();
+      }
+    });
+
+    newSocket.on("startCountdown", () => {
+      console.log("Starting countdown");
+      setCountdown(3);
+    });
+
+    newSocket.on("playerFinished", (result: GameResult) => {
+      console.log("Received playerFinished event:", result);
+      setResults((prevResults) => {
+        const newResults = [...prevResults, result];
+        resultsRef.current = newResults;
+        console.log("Updated results:", newResults);
+        return newResults;
+      });
+    });
+
+    newSocket.on("gameOver", (finalResults: GameResult[]) => {
+      console.log("Received gameOver event, final results:", finalResults);
+      setResults(finalResults);
+      resultsRef.current = finalResults;
+      setIsGameOver(true);
+      setIsTyping(false);
+    });
+
+    newSocket.on("rematchRequested", () => {
+      console.log("Rematch requested");
+      setRematchRequested(true);
+    });
+
+    newSocket.on("rematchAccepted", () => {
+      console.log("Rematch accepted, resetting game");
+      resetGame();
+    });
+
+    socketRef.current = newSocket;
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const cleanup = setupSocket();
+    return cleanup;
+  }, [setupSocket]);
 
   const startTyping = useCallback(() => {
     console.log("Starting typing test");
@@ -80,13 +161,14 @@ const Game: React.FC = () => {
       `Attempting to emit gameFinished event: ${lobbyCode}, ${wpm}, ${finalScore}`
     );
 
-    if (socket?.connected) {
-      socket.emit(
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(
         "gameFinished",
         { lobbyCode, wpm, score: finalScore },
         (error: unknown) => {
           if (error) {
             console.error("Error emitting gameFinished event:", error);
+            setError("Failed to submit game results. Please try again.");
           } else {
             console.log("gameFinished event emitted successfully");
           }
@@ -96,94 +178,12 @@ const Game: React.FC = () => {
       console.error(
         "Socket is not connected. Unable to emit gameFinished event."
       );
-    }
-  }, [socket]);
-
-  useEffect(() => {
-    console.log("Setting up socket connection");
-    const token = localStorage.getItem("token");
-    const newSocket = io("http://localhost:3000", {
-      transports: ["polling"],
-      auth: { token },
-    });
-
-    setSocket(newSocket);
-
-    newSocket.on("connect", () => {
-      console.log("Connected to game socket");
-      const lobbyCode = window.location.pathname.split("/").pop();
-      newSocket.emit("joinGame", { lobbyCode });
-    });
-
-    newSocket.on("gameState", (state: GameState) => {
-      console.log("Received game state", state);
-      setGameState(state);
-      setWordList(state.wordList);
-      if (state.startTime > Date.now()) {
-        setCountdown(Math.ceil((state.startTime - Date.now()) / 1000));
-      } else {
-        startTyping();
-      }
-    });
-
-    newSocket.on("reconnect", (attemptNumber) => {
-      console.log(
-        "Reconnected to game socket after",
-        attemptNumber,
-        "attempts"
+      setError(
+        "Lost connection to the game server. Attempting to reconnect..."
       );
-      setError(null);
-      const lobbyCode = window.location.pathname.split("/").pop();
-      newSocket.emit("joinGame", { lobbyCode });
-    });
-
-    newSocket.on("startCountdown", () => {
-      console.log("Starting countdown");
-      setCountdown(3);
-    });
-
-    newSocket.on("playerFinished", (result: GameResult) => {
-      console.log("Received playerFinished event:", result);
-      setResults((prevResults) => {
-        const newResults = [...prevResults, result];
-        resultsRef.current = newResults;
-        console.log("Updated results:", newResults);
-        return newResults;
-      });
-    });
-
-    newSocket.on("gameOver", (finalResults: GameResult[]) => {
-      console.log("Received gameOver event, final results:", finalResults);
-      setResults(finalResults);
-      resultsRef.current = finalResults;
-      setIsGameOver(true);
-      setIsTyping(false);
-    });
-
-    newSocket.on("rematchRequested", () => {
-      console.log("Rematch requested");
-      setRematchRequested(true);
-    });
-
-    newSocket.on("rematchAccepted", () => {
-      console.log("Rematch accepted, resetting game");
-      resetGame();
-    });
-
-    newSocket.on("error", (errorMessage: string) => {
-      console.error("Received error event:", errorMessage);
-      setError(errorMessage);
-    });
-
-    newSocket.on("disconnect", (reason) => {
-      console.log("Disconnected from game socket:", reason);
-      setError("Disconnected from the game. Trying to reconnect...");
-    });
-
-    return () => {
-      console.log("Cleaning up socket connection");
-    };
-  }, [startTyping]);
+      setupSocket();
+    }
+  }, [setupSocket]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -301,13 +301,13 @@ const Game: React.FC = () => {
 
   const handleRematchRequest = () => {
     const lobbyCode = window.location.pathname.split("/").pop();
-    socket?.emit("rematchRequest", { lobbyCode });
+    socketRef.current?.emit("rematchRequest", { lobbyCode });
     setRematchRequested(true);
   };
 
   const handleRematchAccept = () => {
     const lobbyCode = window.location.pathname.split("/").pop();
-    socket?.emit("rematchAccept", { lobbyCode });
+    socketRef.current?.emit("rematchAccept", { lobbyCode });
   };
 
   const resetGame = () => {
@@ -396,7 +396,7 @@ const Game: React.FC = () => {
         )}
         <Button
           onClick={() => router.push("/")}
-          className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+          className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500focus:ring-opacity-50"
         >
           Back to Home
         </Button>
@@ -405,17 +405,24 @@ const Game: React.FC = () => {
   );
 
   if (error) {
-    return <div className="text-red-500">{error}</div>;
-  }
-
-  return (
-    <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
-      {error && (
+    return (
+      <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
         <Alert variant="destructive" className="mb-4">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-      )}
+        <Button
+          onClick={() => router.push("/")}
+          className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+        >
+          Back to Home
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
       <div className="w-full max-w-4xl">
         <div className="flex justify-between items-center mb-8">
           <Button
