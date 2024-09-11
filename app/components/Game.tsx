@@ -126,6 +126,8 @@ const Game: React.FC = () => {
   const startTyping = useCallback(() => {
     console.log("Starting typing test");
     setIsTyping(true);
+    results;
+    gameState;
     setScore(0);
     scoreRef.current = 0;
     setTimeLeft(30);
@@ -434,7 +436,12 @@ const Game: React.FC = () => {
           <h1 className="text-5xl font-bold text-center">naskotype</h1>
           <div className="w-24"></div>
         </div>
-        {countdown !== null && countdown > 0 ? (
+        {error ? (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : countdown !== null && countdown > 0 ? (
           <div className="text-center">
             <h2 className="text-4xl font-bold mb-4">
               Game starts in: {countdown}
@@ -473,7 +480,7 @@ const Game: React.FC = () => {
             </div>
           </div>
         ) : (
-          renderGameOver()
+          isGameOver && renderGameOver()
         )}
       </div>
     </div>
