@@ -183,7 +183,7 @@ const Game: React.FC = () => {
     return () => {
       console.log("Cleaning up socket connection");
     };
-  }, []);
+  }, [startTyping]);
 
   useEffect(() => {
     if (countdown === null) return;
