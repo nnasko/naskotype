@@ -84,10 +84,18 @@ const Lobby: React.FC = () => {
     participants.length >= 2 && participants.every((p) => p.isReady);
 
   return (
-    <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8 relative overflow-hidden">
+    <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center p-8 relative overflow-hidden">
       <BackgroundStars />
       <div className="z-10 w-full max-w-md">
-        <h1 className="text-5xl font-bold text-center mb-8">
+        <header className="flex justify-center items-center mb-8">
+          <a
+            href="/"
+            className="text-4xl font-bold hover:text-blue-400 transition-colors"
+          >
+            naskotype
+          </a>
+        </header>
+        <h1 className="text-3xl font-bold text-center mb-8">
           {lobbyInfo?.name || "Loading..."}
         </h1>
         <div className="bg-blue-600 text-white py-2 px-4 rounded-md mb-4 text-center">

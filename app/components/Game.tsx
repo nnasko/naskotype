@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Home, Trophy, Award } from "lucide-react";
+import { Trophy, Award } from "lucide-react";
 
 interface GameResult {
   username: string;
@@ -126,8 +126,6 @@ const Game: React.FC = () => {
   const startTyping = useCallback(() => {
     console.log("Starting typing test");
     setIsTyping(true);
-    results;
-    gameState;
     setScore(0);
     scoreRef.current = 0;
     setTimeLeft(30);
@@ -140,16 +138,17 @@ const Game: React.FC = () => {
   const startTimer = useCallback(() => {
     console.log("Starting timer");
     if (timerRef.current) clearInterval(timerRef.current);
+    const startTime = Date.now();
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          setIsTyping(false);
-          finishGame();
-          return 0;
-        }
-        return prev - 1;
-      });
+      const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+      const remainingTime = Math.max(30 - elapsedTime, 0);
+      setTimeLeft(remainingTime);
+
+      if (remainingTime === 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setIsTyping(false);
+        finishGame();
+      }
     }, 1000);
   }, []);
 
@@ -157,7 +156,7 @@ const Game: React.FC = () => {
     const finalScore = scoreRef.current;
     console.log("Final Score:", finalScore);
 
-    const wpm = finalScore * 2;
+    const wpm = Math.round((finalScore / 0.5) * 2); // Calculate WPM based on 30 seconds game
     const lobbyCode = window.location.pathname.split("/").pop();
     console.log(
       `Attempting to emit gameFinished event: ${lobbyCode}, ${wpm}, ${finalScore}`
@@ -173,6 +172,11 @@ const Game: React.FC = () => {
             setError("Failed to submit game results. Please try again.");
           } else {
             console.log("gameFinished event emitted successfully");
+            // Update local results immediately
+            setResults((prevResults) => [
+              ...prevResults,
+              { username: "You", wpm, score: finalScore },
+            ]);
           }
         }
       );
@@ -316,95 +320,12 @@ const Game: React.FC = () => {
     setIsGameOver(false);
     setRematchRequested(false);
     setResults([]);
+    resultsRef.current = [];
     setScore(0);
     setCurrentWordIndex(0);
     setUserInput("");
     setCountdown(3);
   };
-
-  const renderGameOver = () => (
-    <div className="mt-8 w-full max-w-2xl mx-auto">
-      <Alert
-        variant="default"
-        className="mb-6 bg-blue-900 border-blue-700 shadow-lg"
-      >
-        <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
-        <AlertTitle className="text-2xl font-bold mb-2">Game Over!</AlertTitle>
-        <AlertDescription className="text-lg">
-          <div className="flex justify-between items-center">
-            <span>
-              Your score:{" "}
-              <span className="font-bold text-green-400">{score}</span> words
-            </span>
-            <span>
-              WPM: <span className="font-bold text-blue-400">{score * 2}</span>
-            </span>
-          </div>
-        </AlertDescription>
-      </Alert>
-      <div className="bg-neutral-800 rounded-lg p-6 shadow-lg">
-        <h3 className="text-2xl font-bold mb-4 text-center">Leaderboard</h3>
-        {resultsRef.current.length > 0 ? (
-          <ul className="space-y-4">
-            {resultsRef.current.map((result, index) => (
-              <li
-                key={index}
-                className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
-              >
-                <div className="flex items-center">
-                  {index === 0 && (
-                    <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
-                  )}
-                  {index === 1 && (
-                    <Award className="h-6 w-6 text-gray-400 mr-2" />
-                  )}
-                  {index === 2 && (
-                    <Award className="h-6 w-6 text-yellow-700 mr-2" />
-                  )}
-                  <span className="text-lg">{result.username}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold">
-                    {result.wpm}{" "}
-                    <span className="text-sm text-neutral-400">WPM</span>
-                  </span>
-                  <br />
-                  <span className="text-sm text-neutral-400">
-                    {result.score} words
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-center text-neutral-400">No results yet</p>
-        )}
-      </div>
-      <div className="mt-8 flex justify-center space-x-4">
-        {rematchRequested ? (
-          <Button
-            onClick={handleRematchAccept}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
-          >
-            Accept Rematch
-          </Button>
-        ) : (
-          <Button
-            onClick={handleRematchRequest}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-          >
-            Request Rematch
-          </Button>
-        )}
-        <Button
-          onClick={() => router.push("/")}
-          className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500focus:ring-opacity-50"
-        >
-          Back to Home
-        </Button>
-      </div>
-    </div>
-  );
 
   if (error) {
     return (
@@ -426,16 +347,14 @@ const Game: React.FC = () => {
   return (
     <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8">
       <div className="w-full max-w-4xl">
-        <div className="flex justify-between items-center mb-8">
-          <Button
-            onClick={() => router.push("/")}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+        <header className="flex justify-center items-center mb-8">
+          <a
+            href="/"
+            className="text-5xl font-bold hover:text-blue-400 transition-colors"
           >
-            <Home className="mr-2 h-4 w-4 inline" /> Home
-          </Button>
-          <h1 className="text-5xl font-bold text-center">naskotype</h1>
-          <div className="w-24"></div>
-        </div>
+            naskotype
+          </a>
+        </header>
         {error ? (
           <Alert variant="destructive" className="mb-4">
             <AlertTitle>Error</AlertTitle>
@@ -480,7 +399,95 @@ const Game: React.FC = () => {
             </div>
           </div>
         ) : (
-          isGameOver && renderGameOver()
+          isGameOver && (
+            <div className="mt-8 w-full max-w-2xl mx-auto">
+              <Alert
+                variant="default"
+                className="mb-6 bg-blue-900 border-blue-700 shadow-lg"
+              >
+                <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
+                <AlertTitle className="text-2xl font-bold mb-2">
+                  Game Over!
+                </AlertTitle>
+                <AlertDescription className="text-lg">
+                  <div className="flex justify-between items-center">
+                    <span>
+                      Your score:{" "}
+                      <span className="font-bold text-green-400">
+                        {scoreRef.current}
+                      </span>{" "}
+                      words
+                    </span>
+                    <span>
+                      WPM:{" "}
+                      <span className="font-bold text-blue-400">
+                        {Math.round((scoreRef.current / 0.5) * 2)}
+                      </span>
+                    </span>
+                  </div>
+                </AlertDescription>
+              </Alert>
+              <div className="bg-neutral-800 rounded-lg p-6 shadow-lg">
+                <h3 className="text-2xl font-bold mb-4 text-center">
+                  Leaderboard
+                </h3>
+                {resultsRef.current.length > 0 ? (
+                  <ul className="space-y-4">
+                    {resultsRef.current.map((result, index) => (
+                      <li
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
+                      >
+                        <div className="flex items-center">
+                          {index === 0 && (
+                            <Trophy className="h-6 w-6 text-yellow-400 mr-2" />
+                          )}
+                          {index === 1 && (
+                            <Award className="h-6 w-6 text-gray-400 mr-2" />
+                          )}
+                          {index === 2 && (
+                            <Award className="h-6 w-6 text-yellow-700 mr-2" />
+                          )}
+                          <span className="text-lg">{result.username}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-lg font-bold">
+                            {result.wpm}{" "}
+                            <span className="text-sm text-neutral-400">
+                              WPM
+                            </span>
+                          </span>
+                          <br />
+                          <span className="text-sm text-neutral-400">
+                            {result.score} words
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-center text-neutral-400">No results yet</p>
+                )}
+              </div>
+              <div className="mt-8 flex justify-center space-x-4">
+                {rematchRequested ? (
+                  <Button
+                    onClick={handleRematchAccept}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                  >
+                    Accept Rematch
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleRematchRequest}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full text-xl transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                  >
+                    Request Rematch
+                  </Button>
+                )}
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>

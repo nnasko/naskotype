@@ -61,7 +61,7 @@ function generateWordList(): string[] {
 function createGameState(participants: LobbyParticipant[]): GameState {
   return {
     wordList: generateWordList(),
-    startTime: Date.now() + 3000, // Start in 3 seconds
+    startTime: Date.now() + 5000, // Start in 5 seconds
     participants: participants.map((p) => ({
       userId: p.userId,
       username: p.user.username,
