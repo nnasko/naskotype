@@ -14,6 +14,7 @@ interface GameResult {
 interface GameState {
   wordList: string[];
   startTime: number;
+  endTime: number;
   participants: GameResult[];
 }
 
@@ -153,10 +154,12 @@ const Game: React.FC = () => {
   }, []);
 
   const finishGame = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+
     const finalScore = scoreRef.current;
     console.log("Final Score:", finalScore);
 
-    const wpm = Math.round((finalScore / 0.5) * 2); // Calculate WPM based on 30 seconds game
+    const wpm = finalScore * 2; // Calculate WPM as 2x the score
     const lobbyCode = window.location.pathname.split("/").pop();
     console.log(
       `Attempting to emit gameFinished event: ${lobbyCode}, ${wpm}, ${finalScore}`
@@ -172,11 +175,6 @@ const Game: React.FC = () => {
             setError("Failed to submit game results. Please try again.");
           } else {
             console.log("gameFinished event emitted successfully");
-            // Update local results immediately
-            setResults((prevResults) => [
-              ...prevResults,
-              { username: "You", wpm, score: finalScore },
-            ]);
           }
         }
       );
@@ -203,6 +201,13 @@ const Game: React.FC = () => {
     }
   }, [countdown, startTyping]);
 
+  const updateScore = useCallback((newScore: number) => {
+    setScore(newScore);
+    scoreRef.current = newScore;
+    const lobbyCode = window.location.pathname.split("/").pop();
+    socketRef.current?.emit("updateScore", { lobbyCode, score: newScore });
+  }, []);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
     setUserInput(inputValue);
@@ -210,12 +215,7 @@ const Game: React.FC = () => {
     if (inputValue.endsWith(" ")) {
       const typedWord = inputValue.trim();
       if (typedWord === wordList[currentWordIndex]) {
-        setScore((prevScore) => {
-          const newScore = prevScore + 1;
-          console.log("Updated score:", newScore);
-          scoreRef.current = newScore;
-          return newScore;
-        });
+        updateScore(score + 1);
         setCurrentWordIndex((prevIndex) => prevIndex + 1);
         setUserInput("");
       }
@@ -421,7 +421,7 @@ const Game: React.FC = () => {
                     <span>
                       WPM:{" "}
                       <span className="font-bold text-blue-400">
-                        {Math.round((scoreRef.current / 0.5) * 2)}
+                        {scoreRef.current * 2}
                       </span>
                     </span>
                   </div>

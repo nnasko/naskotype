@@ -34,6 +34,7 @@ interface GameParticipant {
 interface GameState {
   wordList: string[];
   startTime: number;
+  endTime: number;
   participants: GameParticipant[];
 }
 
@@ -59,18 +60,21 @@ function generateWordList(): string[] {
 }
 
 function createGameState(participants: LobbyParticipant[]): GameState {
-  return {
+  const gameState = {
     wordList: generateWordList(),
     startTime: Date.now() + 5000, // Start in 5 seconds
+    endTime: Date.now() + 35000, // End after 35 seconds (5s countdown + 30s game)
     participants: participants.map((p) => ({
       userId: p.userId,
       username: p.user.username,
       finished: false,
-      wpm: null,
-      score: null,
+      wpm: 0,
+      score: 0,
       socketId: null,
     })),
   };
+
+  return gameState;
 }
 
 function updateLobbyParticipants(participants: PrismaParticipant[]) {
@@ -225,6 +229,11 @@ nextApp.prepare().then(() => {
           setTimeout(() => {
             io.to(lobbyCode).emit("startCountdown");
           }, 100);
+
+          // Set a timeout to end the game after 35 seconds (5s countdown + 30s game)
+          setTimeout(() => {
+            endGame(lobbyCode);
+          }, 35000);
         }
       }
     });
@@ -245,7 +254,7 @@ nextApp.prepare().then(() => {
       }
     });
 
-    socket.on("gameFinished", async ({ lobbyCode, wpm, score }) => {
+    socket.on("gameFinished", async ({ lobbyCode }) => {
       const userId = socket.data.userId;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
@@ -264,14 +273,12 @@ nextApp.prepare().then(() => {
       );
       if (participant) {
         participant.finished = true;
-        participant.wpm = wpm;
-        participant.score = score;
+        const score = participant.score || 0;
+        const wpm = score * 2;
+        const playerResult = { username: user.username, wpm, score };
+        console.log("Broadcasting playerFinished event:", playerResult);
+        io.to(lobbyCode).emit("playerFinished", playerResult);
       }
-
-      const playerResult = { username: user.username, wpm, score };
-      io.to(lobbyCode).emit("playerFinished", playerResult);
-
-      checkGameEnd(lobbyCode);
     });
 
     socket.on("rematchRequest", async ({ lobbyCode }) => {
@@ -309,6 +316,19 @@ nextApp.prepare().then(() => {
       io.to(lobbyCode).emit("rematchAccepted");
     });
 
+    socket.on("updateScore", async ({ lobbyCode, score }) => {
+      const gameState = activeGames.get(lobbyCode);
+      if (gameState) {
+        const participant = gameState.participants.find(
+          (p) => p.userId === socket.data.userId
+        );
+        if (participant) {
+          participant.score = score;
+          participant.wpm = score * 2; // Update WPM as well
+        }
+      }
+    });
+
     socket.on("disconnect", async () => {
       const userId = socket.data.userId;
 
@@ -321,7 +341,6 @@ nextApp.prepare().then(() => {
           );
           if (participant) {
             participant.socketId = null;
-            checkGameEnd(lobbyCode);
             break;
           }
         }
@@ -351,32 +370,19 @@ nextApp.prepare().then(() => {
     });
   });
 
-  function checkGameEnd(lobbyCode: string) {
-    const gameState = activeGames.get(lobbyCode);
-    if (!gameState) return;
-
-    const allFinished = gameState.participants.every((p) => p.finished);
-
-    if (allFinished) {
-      endGame(lobbyCode);
-    } else if (!gameTimeouts.has(lobbyCode)) {
-      const timeout = setTimeout(() => endGame(lobbyCode), 5000); // 5 seconds grace period
-      gameTimeouts.set(lobbyCode, timeout);
-    }
-  }
-
   function endGame(lobbyCode: string) {
     const gameState = activeGames.get(lobbyCode);
     if (!gameState) return;
 
     const sortedResults = gameState.participants
-      .map((p) => ({
-        username: p.username,
-        wpm: p.wpm || 0,
-        score: p.score || 0,
-      }))
+      .map((p) => {
+        const score = p.score || 0;
+        const wpm = score * 2;
+        return { username: p.username, wpm, score };
+      })
       .sort((a, b) => b.wpm - a.wpm);
 
+    console.log("Emitting gameOver event with results:", sortedResults);
     io.to(lobbyCode).emit("gameOver", sortedResults);
 
     activeGames.delete(lobbyCode);
