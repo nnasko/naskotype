@@ -72,21 +72,38 @@ const Game: React.FC = () => {
 
   const finishGame = useCallback(() => {
     const finalScore = scoreRef.current;
-    console.log("Finishing game");
     console.log("Final Score:", finalScore);
-    const wpm = finalScore * 2; // Calculate WPM (words per 30 seconds * 2)
+
+    const wpm = finalScore * 2;
     const lobbyCode = window.location.pathname.split("/").pop();
     console.log(
-      `Emitting gameFinished event. Lobby: ${lobbyCode}, WPM: ${wpm}, Score: ${finalScore}`
+      `Attempting to emit gameFinished event: ${lobbyCode}, ${wpm}, ${finalScore}`
     );
-    socket?.emit("gameFinished", { lobbyCode, wpm, score: finalScore });
+
+    if (socket?.connected) {
+      socket.emit(
+        "gameFinished",
+        { lobbyCode, wpm, score: finalScore },
+        (error: unknown) => {
+          if (error) {
+            console.error("Error emitting gameFinished event:", error);
+          } else {
+            console.log("gameFinished event emitted successfully");
+          }
+        }
+      );
+    } else {
+      console.error(
+        "Socket is not connected. Unable to emit gameFinished event."
+      );
+    }
   }, [socket]);
 
   useEffect(() => {
     console.log("Setting up socket connection");
     const token = localStorage.getItem("token");
     const newSocket = io("http://localhost:3000", {
-      transports: ["websocket"],
+      transports: ["polling"],
       auth: { token },
     });
 
@@ -165,7 +182,6 @@ const Game: React.FC = () => {
 
     return () => {
       console.log("Cleaning up socket connection");
-      newSocket.disconnect();
     };
   }, []);
 
