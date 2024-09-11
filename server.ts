@@ -1,6 +1,5 @@
 import { Server, Socket } from "socket.io";
 import { createServer } from "http";
-import express from "express";
 import next from "next";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
@@ -11,7 +10,19 @@ const nextApp = next({ dev });
 const nextHandler = nextApp.getRequestHandler();
 const prisma = new PrismaClient();
 
-interface Participant {
+interface PrismaParticipant {
+  id: number;
+  userId: number;
+  lobbyId: string;
+  isReady: boolean;
+  user: {
+    id: number;
+    username: string;
+    password: string;
+  };
+}
+
+interface GameParticipant {
   userId: number;
   username: string;
   finished: boolean;
@@ -20,17 +31,17 @@ interface Participant {
   socketId: string | null;
 }
 
+interface GameState {
+  wordList: string[];
+  startTime: number;
+  participants: GameParticipant[];
+}
+
 interface LobbyParticipant {
   userId: number;
   user: {
     username: string;
   };
-}
-
-interface GameState {
-  wordList: string[];
-  startTime: number;
-  participants: Participant[];
 }
 
 const activeGames = new Map<string, GameState>();
@@ -62,9 +73,16 @@ function createGameState(participants: LobbyParticipant[]): GameState {
   };
 }
 
+function updateLobbyParticipants(participants: PrismaParticipant[]) {
+  return participants.map((p) => ({
+    id: p.id,
+    username: p.user.username,
+    isReady: p.isReady,
+  }));
+}
+
 nextApp.prepare().then(() => {
-  const app = express();
-  const server = createServer(app);
+  const server = createServer(nextHandler);
   const io = new Server(server);
 
   io.use((socket, next) => {
@@ -89,12 +107,10 @@ nextApp.prepare().then(() => {
   io.on("connection", async (socket: Socket) => {
     console.log("A user connected:", socket.id);
 
-    socket.on("createLobby", async () => {
+    socket.on("createLobby", async ({ name, isPublic }) => {
       const userId = socket.data.userId;
-      console.log(`User ${userId} is creating a lobby`);
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
-        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
@@ -103,31 +119,31 @@ nextApp.prepare().then(() => {
       const lobby = await prisma.lobby.create({
         data: {
           code: lobbyCode,
+          name,
+          isPublic,
           creatorId: userId,
           participants: { create: { userId: userId } },
         },
         include: { participants: { include: { user: true } } },
       });
 
-      console.log(`Lobby created: ${lobbyCode}`);
       socket.join(lobbyCode);
       socket.emit("lobbyCreated", lobbyCode);
+      io.to(lobbyCode).emit("lobbyInfo", {
+        code: lobby.code,
+        name: lobby.name,
+        isPublic: lobby.isPublic,
+      });
       io.to(lobbyCode).emit(
         "lobbyUpdate",
-        lobby.participants.map((p) => ({
-          id: p.id,
-          username: p.user.username,
-          isReady: p.isReady,
-        }))
+        updateLobbyParticipants(lobby.participants)
       );
     });
 
     socket.on("joinLobby", async ({ lobbyCode }) => {
-      console.log(`User ${socket.data.userId} is joining lobby ${lobbyCode}`);
       const userId = socket.data.userId;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
-        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
@@ -138,7 +154,6 @@ nextApp.prepare().then(() => {
       });
 
       if (!lobby) {
-        console.log(`Lobby not found: ${lobbyCode}`);
         socket.emit("error", "Lobby not found");
         return;
       }
@@ -152,8 +167,12 @@ nextApp.prepare().then(() => {
         });
       }
 
-      console.log(`User ${userId} joined lobby ${lobbyCode}`);
       socket.join(lobbyCode);
+      socket.emit("lobbyInfo", {
+        code: lobby.code,
+        name: lobby.name,
+        isPublic: lobby.isPublic,
+      });
 
       const updatedLobby = await prisma.lobby.findUnique({
         where: { code: lobbyCode },
@@ -163,19 +182,12 @@ nextApp.prepare().then(() => {
       if (updatedLobby) {
         io.to(lobbyCode).emit(
           "lobbyUpdate",
-          updatedLobby.participants.map((p) => ({
-            id: p.id,
-            username: p.user.username,
-            isReady: p.isReady,
-          }))
+          updateLobbyParticipants(updatedLobby.participants)
         );
       }
     });
 
     socket.on("playerReady", async ({ lobbyCode, isReady }) => {
-      console.log(
-        `Player ${socket.id} ready status: ${isReady} in lobby ${lobbyCode}`
-      );
       const userId = socket.data.userId;
       const lobby = await prisma.lobby.findUnique({
         where: { code: lobbyCode },
@@ -183,7 +195,6 @@ nextApp.prepare().then(() => {
       });
 
       if (!lobby) {
-        console.log(`Lobby not found: ${lobbyCode}`);
         socket.emit("error", "Lobby not found");
         return;
       }
@@ -201,20 +212,13 @@ nextApp.prepare().then(() => {
       if (updatedLobby) {
         io.to(lobbyCode).emit(
           "lobbyUpdate",
-          updatedLobby.participants.map((p) => ({
-            id: p.id,
-            username: p.user.username,
-            isReady: p.isReady,
-          }))
+          updateLobbyParticipants(updatedLobby.participants)
         );
 
         if (
           updatedLobby.participants.length >= 2 &&
           updatedLobby.participants.every((p) => p.isReady)
         ) {
-          console.log(
-            `All players ready in lobby ${lobbyCode}. Starting game.`
-          );
           const gameState = createGameState(updatedLobby.participants);
           activeGames.set(lobbyCode, gameState);
           io.to(lobbyCode).emit("gameStarting", lobbyCode);
@@ -226,41 +230,31 @@ nextApp.prepare().then(() => {
     });
 
     socket.on("joinGame", async ({ lobbyCode }) => {
-      console.log(`User ${socket.data.userId} is joining game ${lobbyCode}`);
       const gameState = activeGames.get(lobbyCode);
       if (gameState) {
         socket.join(lobbyCode);
-
         const participant = gameState.participants.find(
           (p) => p.userId === socket.data.userId
         );
         if (participant) {
           participant.socketId = socket.id;
         }
-
         socket.emit("gameState", gameState);
-        console.log(`Emitted gameState to user ${socket.data.userId}`);
       } else {
-        console.log(`Game not found for lobby: ${lobbyCode}`);
         socket.emit("error", "Game not found");
       }
     });
 
     socket.on("gameFinished", async ({ lobbyCode, wpm, score }) => {
-      console.log(
-        `Game finished for user ${socket.data.userId} in lobby ${lobbyCode} with WPM: ${wpm}, Score: ${score}`
-      );
       const userId = socket.data.userId;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
-        console.log(`User not found for ID: ${userId}`);
         socket.emit("error", "User not found");
         return;
       }
 
       const gameState = activeGames.get(lobbyCode);
       if (!gameState) {
-        console.log(`Game not found for lobby: ${lobbyCode}`);
         socket.emit("error", "Game not found");
         return;
       }
@@ -272,32 +266,25 @@ nextApp.prepare().then(() => {
         participant.finished = true;
         participant.wpm = wpm;
         participant.score = score;
-        console.log(`Updated participant: ${JSON.stringify(participant)}`);
       }
 
       const playerResult = { username: user.username, wpm, score };
       io.to(lobbyCode).emit("playerFinished", playerResult);
-      console.log(
-        `Emitted playerFinished event: ${JSON.stringify(playerResult)}`
-      );
 
       checkGameEnd(lobbyCode);
     });
 
     socket.on("rematchRequest", async ({ lobbyCode }) => {
-      console.log(`Rematch requested in lobby ${lobbyCode}`);
       io.to(lobbyCode).emit("rematchRequested");
     });
 
     socket.on("rematchAccept", async ({ lobbyCode }) => {
-      console.log(`Rematch accepted in lobby ${lobbyCode}`);
       const lobby = await prisma.lobby.findUnique({
         where: { code: lobbyCode },
         include: { participants: { include: { user: true } } },
       });
 
       if (!lobby) {
-        console.log(`Lobby not found: ${lobbyCode}`);
         socket.emit("error", "Lobby not found");
         return;
       }
@@ -315,11 +302,7 @@ nextApp.prepare().then(() => {
       if (updatedLobby) {
         io.to(lobbyCode).emit(
           "lobbyUpdate",
-          updatedLobby.participants.map((p) => ({
-            id: p.id,
-            username: p.user.username,
-            isReady: false,
-          }))
+          updateLobbyParticipants(updatedLobby.participants)
         );
       }
 
@@ -327,19 +310,17 @@ nextApp.prepare().then(() => {
     });
 
     socket.on("disconnect", async () => {
-      console.log("A user disconnected:", socket.id);
       const userId = socket.data.userId;
 
       if (typeof userId === "number") {
-        for (const [lobbyCode, gameState] of Object.entries(activeGames)) {
+        for (const [lobbyCode, gameState] of Array.from(
+          activeGames.entries()
+        )) {
           const participant = gameState.participants.find(
-            (p: { userId: number }) => p.userId === userId
+            (p) => p.userId === userId
           );
           if (participant) {
             participant.socketId = null;
-            console.log(
-              `User ${userId} disconnected from game in lobby ${lobbyCode}`
-            );
             checkGameEnd(lobbyCode);
             break;
           }
@@ -360,17 +341,7 @@ nextApp.prepare().then(() => {
           if (updatedLobby) {
             io.to(updatedLobby.code).emit(
               "lobbyUpdate",
-              updatedLobby.participants.map(
-                (p: {
-                  id: number;
-                  user: { username: string };
-                  isReady: boolean;
-                }) => ({
-                  id: p.id,
-                  username: p.user.username,
-                  isReady: p.isReady,
-                })
-              )
+              updateLobbyParticipants(updatedLobby.participants)
             );
           }
         }
@@ -385,25 +356,18 @@ nextApp.prepare().then(() => {
     if (!gameState) return;
 
     const allFinished = gameState.participants.every((p) => p.finished);
-    console.log(`All participants finished: ${allFinished}`);
 
     if (allFinished) {
-      console.log("All participants finished, ending game immediately");
       endGame(lobbyCode);
     } else if (!gameTimeouts.has(lobbyCode)) {
-      console.log("Setting timeout to end game");
       const timeout = setTimeout(() => endGame(lobbyCode), 5000); // 5 seconds grace period
       gameTimeouts.set(lobbyCode, timeout);
     }
   }
 
   function endGame(lobbyCode: string) {
-    console.log(`Ending game for lobby ${lobbyCode}`);
     const gameState = activeGames.get(lobbyCode);
-    if (!gameState) {
-      console.log(`No game state found for lobby ${lobbyCode}`);
-      return;
-    }
+    if (!gameState) return;
 
     const sortedResults = gameState.participants
       .map((p) => ({
@@ -413,18 +377,14 @@ nextApp.prepare().then(() => {
       }))
       .sort((a, b) => b.wpm - a.wpm);
 
-    console.log(`Final results: ${JSON.stringify(sortedResults)}`);
     io.to(lobbyCode).emit("gameOver", sortedResults);
-    console.log(`Emitted gameOver event to lobby ${lobbyCode}`);
 
     activeGames.delete(lobbyCode);
-    console.log(`Deleted game state for lobby ${lobbyCode}`);
 
     const timeout = gameTimeouts.get(lobbyCode);
     if (timeout) {
       clearTimeout(timeout);
       gameTimeouts.delete(lobbyCode);
-      console.log(`Cleared timeout for lobby ${lobbyCode}`);
     }
 
     resetLobby(lobbyCode);
@@ -433,7 +393,7 @@ nextApp.prepare().then(() => {
   async function resetLobby(lobbyCode: string) {
     try {
       await prisma.participant.updateMany({
-        where: { lobbyId: lobbyCode },
+        where: { lobby: { code: lobbyCode } },
         data: { isReady: false },
       });
 
@@ -445,22 +405,13 @@ nextApp.prepare().then(() => {
       if (updatedLobby) {
         io.to(lobbyCode).emit(
           "lobbyUpdate",
-          updatedLobby.participants.map((p) => ({
-            id: p.id,
-            username: p.user.username,
-            isReady: false,
-          }))
+          updateLobbyParticipants(updatedLobby.participants)
         );
-        console.log(`Emitted lobbyUpdate event for lobby ${lobbyCode}`);
       }
     } catch (error) {
       console.error("Error resetting lobby:", error);
     }
   }
-
-  app.all("*", (req: express.Request, res: express.Response) =>
-    nextHandler(req, res)
-  );
 
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => {

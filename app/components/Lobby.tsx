@@ -11,8 +11,14 @@ interface Participant {
   isReady: boolean;
 }
 
+interface LobbyInfo {
+  code: string;
+  name: string;
+  isPublic: boolean;
+}
+
 const Lobby: React.FC = () => {
-  const [lobbyCode, setLobbyCode] = useState<string | null>(null);
+  const [lobbyInfo, setLobbyInfo] = useState<LobbyInfo | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -22,8 +28,6 @@ const Lobby: React.FC = () => {
 
   useEffect(() => {
     const code = window.location.pathname.split("/").pop();
-    setLobbyCode(code || null);
-
     const token = localStorage.getItem("token");
     const newSocket = io("http://localhost:3000", {
       transports: ["websocket"],
@@ -37,6 +41,11 @@ const Lobby: React.FC = () => {
       if (code) {
         newSocket.emit("joinLobby", { lobbyCode: code });
       }
+    });
+
+    newSocket.on("lobbyInfo", (info: LobbyInfo) => {
+      console.log("Lobby info received:", info);
+      setLobbyInfo(info);
     });
 
     newSocket.on("lobbyUpdate", (updatedParticipants: Participant[]) => {
@@ -61,7 +70,10 @@ const Lobby: React.FC = () => {
 
   const handleReadyClick = () => {
     setIsReady(!isReady);
-    socket?.emit("playerReady", { lobbyCode, isReady: !isReady });
+    socket?.emit("playerReady", {
+      lobbyCode: lobbyInfo?.code,
+      isReady: !isReady,
+    });
   };
 
   if (error) {
@@ -75,9 +87,15 @@ const Lobby: React.FC = () => {
     <div className="min-h-screen bg-neutral-900 text-white flex flex-col items-center justify-center p-8 relative overflow-hidden">
       <BackgroundStars />
       <div className="z-10 w-full max-w-md">
-        <h1 className="text-5xl font-bold text-center mb-8">Lobby</h1>
+        <h1 className="text-5xl font-bold text-center mb-8">
+          {lobbyInfo?.name || "Loading..."}
+        </h1>
         <div className="bg-blue-600 text-white py-2 px-4 rounded-md mb-4 text-center">
-          Lobby Code: <span className="font-bold">{lobbyCode}</span>
+          Lobby Code:{" "}
+          <span className="font-bold">{lobbyInfo?.code || "Loading..."}</span>
+        </div>
+        <div className="bg-neutral-700 text-white py-2 px-4 rounded-md mb-4 text-center">
+          {lobbyInfo?.isPublic ? "Public Lobby" : "Private Lobby"}
         </div>
         <div className="bg-neutral-800 p-6 rounded-lg shadow-lg mb-8">
           <h2 className="text-2xl font-bold mb-4">Participants</h2>

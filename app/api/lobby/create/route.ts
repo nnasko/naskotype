@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import prisma from "@/lib/prisma";
 import jwt from "jsonwebtoken";
-
-const prisma = new PrismaClient();
 
 function generateLobbyCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -29,9 +27,21 @@ export async function POST(request: Request) {
     const decoded = jwt.verify(token, jwtSecret) as { userId: number };
     const lobbyCode = generateLobbyCode();
 
+    // Parse the request body
+    const { name, isPublic = true } = await request.json();
+
+    if (!name) {
+      return NextResponse.json(
+        { message: "Lobby name is required" },
+        { status: 400 }
+      );
+    }
+
     const lobby = await prisma.lobby.create({
       data: {
         code: lobbyCode,
+        name,
+        isPublic,
         creatorId: decoded.userId,
         participants: {
           create: {

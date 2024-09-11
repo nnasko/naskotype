@@ -1,9 +1,15 @@
 // app/api/lobby/[code]/route.ts
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import prisma from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 
-const prisma = new PrismaClient();
+interface Participant {
+  id: number;
+  user: {
+    username: string;
+  };
+  isReady: boolean;
+}
 
 export async function GET(
   request: Request,
@@ -35,7 +41,7 @@ export async function GET(
 
     return NextResponse.json({
       code: lobby.code,
-      participants: lobby.participants.map((p) => ({
+      participants: lobby.participants.map((p: Participant) => ({
         id: p.id,
         username: p.user.username,
         isReady: p.isReady,

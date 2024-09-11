@@ -22,6 +22,8 @@ model Lobby {
   code         String        @unique
   createdAt    DateTime      @default(now())
   creatorId    Int
+  name         String
+  isPublic     Boolean       @default(false)
   creator      User          @relation(fields: [creatorId], references: [id])
   participants Participant[]
 }
