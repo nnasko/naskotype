@@ -26,7 +26,7 @@ const Game: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState(30);
   const [results, setResults] = useState<GameResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(3);
+  const [countdown, setCountdown] = useState<number | null>(5);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isGameOver, setIsGameOver] = useState(false);
   const [rematchRequested, setRematchRequested] = useState(false);
@@ -80,7 +80,7 @@ const Game: React.FC = () => {
 
     newSocket.on("startCountdown", () => {
       console.log("Starting countdown");
-      setCountdown(3);
+      setCountdown(5);
     });
 
     newSocket.on("playerFinished", (result: GameResult) => {
@@ -324,7 +324,7 @@ const Game: React.FC = () => {
     setScore(0);
     setCurrentWordIndex(0);
     setUserInput("");
-    setCountdown(3);
+    setCountdown(5);
   };
 
   if (error) {
